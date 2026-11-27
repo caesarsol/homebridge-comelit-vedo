@@ -310,6 +310,7 @@ export class VedoAlarm {
     try {
       await this.refreshUID();
       await this.client.includeZone(this.lastUID, index);
+      return;
     } catch (e) {
       this.log.error(`Error including zone: ${e.message}`);
     }
@@ -322,6 +323,7 @@ export class VedoAlarm {
     try {
       await this.refreshUID();
       await this.client.excludeZone(this.lastUID, index);
+      return;
     } catch (e) {
       this.log.error(`Error excluding zone: ${e.message}`);
     }
