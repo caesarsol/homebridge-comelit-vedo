@@ -1,6 +1,6 @@
 import { sleep, VedoClientConfig } from 'comelit-client';
 import { ExtendedAreas, VedoAlarm, VedoAlarmConfig } from './accessories/vedo-alarm';
-import { VedoSensor } from './accessories/vedo-sensor';
+import { SensorType, VedoSensor } from './accessories/vedo-sensor';
 import express, { Express } from 'express';
 import client, { register } from 'prom-client';
 import * as http from 'http';
@@ -21,6 +21,9 @@ export interface VedoPlatformConfig extends PlatformConfig {
   alarm_port?: number;
   alarm_code: string;
   map_sensors: boolean;
+  sensor_type?: SensorType;
+  sensor_types?: { zone: string; type: SensorType }[];
+  exclusion_switch?: boolean;
   update_interval?: number;
   export_prometheus_metrics?: boolean;
   exporter_http_port?: number;
@@ -249,7 +252,19 @@ export class ComelitVedoPlatform implements DynamicPlatformPlugin {
             const name = `${zone.description}-${zone.index}`;
             this.log.info(`Mapping sensor with ID ${name}`);
             const sensorAccessory = this.createHapAccessory(name, Categories.SENSOR);
-            return new VedoSensor(this, sensorAccessory, zone.description, zone, this.alarm);
+            const type =
+              (this.config.sensor_types || []).find(t => t.zone === zone.description)?.type ||
+              this.config.sensor_type ||
+              'occupancy';
+            return new VedoSensor(
+              this,
+              sensorAccessory,
+              zone.description,
+              zone,
+              this.alarm,
+              type,
+              this.config.exclusion_switch !== false
+            );
           });
         }
       }

@@ -43,10 +43,50 @@
         "maximum": 60
       },
       "map_sensors": {
-        "title": "Map alarm sensors as occupancy sensors in HomeKit",
+        "title": "Map alarm zones as sensors in HomeKit",
         "type": "boolean",
         "required": false,
         "default": false
+      },
+      "sensor_type": {
+        "title": "Sensor type for the zones",
+        "type": "string",
+        "required": false,
+        "default": "occupancy",
+        "oneOf": [
+          { "title": "Occupancy sensor", "enum": ["occupancy"] },
+          { "title": "Contact sensor (doors, windows)", "enum": ["contact"] },
+          { "title": "Motion sensor (volumetric)", "enum": ["motion"] }
+        ]
+      },
+      "sensor_types": {
+        "title": "Sensor type of single zones",
+        "type": "array",
+        "required": false,
+        "items": {
+          "type": "object",
+          "properties": {
+            "zone": {
+              "title": "Zone name, as in the alarm",
+              "type": "string"
+            },
+            "type": {
+              "title": "Sensor type",
+              "type": "string",
+              "oneOf": [
+                { "title": "Occupancy sensor", "enum": ["occupancy"] },
+                { "title": "Contact sensor (doors, windows)", "enum": ["contact"] },
+                { "title": "Motion sensor (volumetric)", "enum": ["motion"] }
+              ]
+            }
+          }
+        }
+      },
+      "exclusion_switch": {
+        "title": "Add a switch per zone to exclude it from the alarm",
+        "type": "boolean",
+        "required": false,
+        "default": true
       },
       "area_mapping": {
         "title": "Alarm Areas Setup",
@@ -183,7 +223,10 @@
         "alarm_port",
         "alarm_code",
         "update_interval",
-        "map_sensors"
+        "map_sensors",
+        "sensor_type",
+        "sensor_types",
+        "exclusion_switch"
       ]
     },
     {
