@@ -103,6 +103,25 @@ If you don't provide any value for night and home areas you will only be able to
 
 Note: in always_on_areas you can provide one or more areas that are always in trigger mode (some systems have them configured). Areas in this array won't be checked, so please do not add any area here if you don't know what you are doing.
 
+## Zone sensors
+
+With `map_sensors` each zone becomes an occupancy sensor plus a switch that includes the zone in the alarm (on) or excludes it (off).
+`sensor_type` picks another sensor for all zones (`occupancy`, `contact` for doors and windows, `motion` for volumetric sensors), `sensor_types` overrides it zone by zone, and `exclusion_switch: false` drops the switches:
+
+```json
+{
+  "platform": "ComelitVedo",
+  "alarm_address": "192.168.1.2",
+  "alarm_code": "12345678",
+  "map_sensors": true,
+  "sensor_type": "contact",
+  "sensor_types": [{ "zone": "IR INGRESSO", "type": "motion" }],
+  "exclusion_switch": false
+}
+```
+
+Without the switches, a Home scene or a "turn everything off" request cannot exclude zones from the alarm by accident.
+
 ## Version History
 
 - 1.0.0 - Initial version
