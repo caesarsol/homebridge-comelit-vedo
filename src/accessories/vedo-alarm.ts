@@ -30,7 +30,10 @@ export interface VedoAlarmConfig extends Partial<VedoClientConfig> {
   home_areas?: ExtendedAreas;
 }
 
-const DEFAULT_LOGIN_TIMEOUT = 15000;
+// The VEDO drops a session about 2 minutes after its login, whatever the traffic.
+const SESSION_REFRESH_MS = 60000;
+// A replaced session stays open this long, for the reads still in flight on it.
+const OLD_SESSION_GRACE_MS = 10000;
 
 export class VedoAlarm {
   readonly client: VedoClient;
@@ -42,6 +45,7 @@ export class VedoAlarm {
   private securityService: Service;
   private lastUID: string;
   private lastLogin: number;
+  private renewing: Promise<void>;
   private readonly away_areas: ExtendedAreas;
   private readonly night_areas: ExtendedAreas;
   private readonly home_areas: ExtendedAreas;
@@ -256,11 +260,14 @@ export class VedoAlarm {
   async fetchZones(): Promise<ZoneStatus[]> {
     try {
       await this.refreshUID();
+      const uid = this.lastUID;
       if (!this.zones) {
-        this.zones = await this.client.zoneDesc(this.lastUID);
+        this.zones = await this.client.zoneDesc(uid);
       }
 
-      return await this.client.zoneStatus(this.lastUID, this.zones);
+      const zones = await this.client.zoneStatus(uid, this.zones);
+      await this.checkStillLogged(uid);
+      return zones;
     } catch (e) {
       this.log.error(`Error fetching zones: ${e.message}`);
     }
@@ -272,17 +279,31 @@ export class VedoAlarm {
   async checkAlarm(): Promise<AlarmArea[]> {
     try {
       await this.refreshUID();
+      const uid = this.lastUID;
       if (!this.areas) {
-        this.areas = await this.client.areaDesc(this.lastUID);
+        this.areas = await this.client.areaDesc(uid);
       }
 
-      return await this.client.findActiveAreas(this.lastUID, this.areas);
+      const areas = await this.client.findActiveAreas(uid, this.areas);
+      await this.checkStillLogged(uid);
+      return areas;
     } catch (e) {
       this.log.error(`Error checking alarm: ${e.message}`);
     }
     this.log.error('Unable to fetch token');
     this.lastUID = null;
     return null;
+  }
+
+  /*
+   * A session that expires during a read answers "Not logged" in place of the data, which
+   * comelit-client parses into every area armed and triggered. Sessions never come back to
+   * life, so one still logged after the read proves the read good.
+   */
+  private async checkStillLogged(uid: string) {
+    if (!(await this.client.isLogged(uid))) {
+      throw new Error('session expired during the read');
+    }
   }
 
   async includeZone(index: number) {
@@ -380,24 +401,43 @@ export class VedoAlarm {
     return [ALL];
   }
 
+  /*
+   * A login takes 3-15 s (the session must reach rt_stat 9). Once the session is
+   * SESSION_REFRESH_MS old, a new one is opened in the background and replaces it only when
+   * ready, so reads wait for a login only at start and after an expiry. Concurrent callers
+   * (zones and areas polling) share one login. An expired session answers 200 with
+   * "Not logged" in place of the data, hence the isLogged() checks.
+   */
   private async refreshUID() {
-    if (this.shouldLogin() || this.getTimeElapsedFromLastLogin() > DEFAULT_LOGIN_TIMEOUT) {
-      if (this.lastUID) {
-        await this.client.logout(this.lastUID);
-      }
+    if (this.lastUID && !(await this.client.isLogged(this.lastUID))) {
       this.lastUID = null;
-      this.lastUID = await this.client.loginWithRetry(this.code);
-      this.lastLogin = new Date().getTime();
+    }
+    if (!this.lastUID) {
+      await this.renewUID();
+    } else if (Date.now() - this.lastLogin > SESSION_REFRESH_MS) {
+      this.renewUID().catch(e => this.log.debug(`Session renewal failed: ${e.message}`));
     }
   }
 
-  private shouldLogin() {
-    return !this.lastUID || this.getTimeElapsedFromLastLogin() > DEFAULT_LOGIN_TIMEOUT;
-  }
-
-  private getTimeElapsedFromLastLogin() {
-    const now = new Date().getTime();
-    return now - this.lastLogin;
+  private renewUID(): Promise<void> {
+    if (!this.renewing) {
+      this.renewing = this.client.loginWithRetry(this.code).then(
+        uid => {
+          this.renewing = null;
+          const old = this.lastUID;
+          this.lastUID = uid;
+          this.lastLogin = Date.now();
+          if (old) {
+            setTimeout(() => this.client.logout(old).catch(() => null), OLD_SESSION_GRACE_MS);
+          }
+        },
+        e => {
+          this.renewing = null;
+          throw e;
+        }
+      );
+    }
+    return this.renewing;
   }
 
   private async setTargetState(value: number, callback: CharacteristicSetCallback) {
